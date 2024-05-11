@@ -1,3 +1,4 @@
+use std::time::SystemTime;
 use {
     crate::{
         config::{ConfigBlockFailAction, ConfigGrpc},
@@ -58,6 +59,7 @@ use {
         },
     },
 };
+use yellowstone_grpc_proto::prost_types::Timestamp;
 
 #[derive(Debug, Clone)]
 pub struct MessageAccountInfo {
@@ -246,12 +248,12 @@ pub struct MessageBlock {
 }
 
 impl
-    From<(
-        MessageBlockMeta,
-        Vec<MessageTransactionInfo>,
-        Vec<MessageAccountInfo>,
-        Vec<MessageEntry>,
-    )> for MessageBlock
+From<(
+    MessageBlockMeta,
+    Vec<MessageTransactionInfo>,
+    Vec<MessageAccountInfo>,
+    Vec<MessageEntry>,
+)> for MessageBlock
 {
     fn from(
         (blockinfo, transactions, accounts, entries): (
@@ -361,12 +363,12 @@ pub struct MessageBlockRef<'a> {
 }
 
 impl<'a>
-    From<(
-        &'a MessageBlock,
-        Vec<&'a MessageTransactionInfo>,
-        Vec<&'a MessageAccountInfo>,
-        Vec<&'a MessageEntry>,
-    )> for MessageBlockRef<'a>
+From<(
+    &'a MessageBlock,
+    Vec<&'a MessageTransactionInfo>,
+    Vec<&'a MessageAccountInfo>,
+    Vec<&'a MessageEntry>,
+)> for MessageBlockRef<'a>
 {
     fn from(
         (block, transactions, accounts, entries): (
@@ -533,7 +535,7 @@ impl BlockMetaStorage {
                             CommitmentLevel::Confirmed => &mut storage.confirmed,
                             CommitmentLevel::Finalized => &mut storage.finalized,
                         }
-                        .replace(msg.slot);
+                            .replace(msg.slot);
 
                         if let Some(blockhash) = storage
                             .blocks
@@ -599,8 +601,8 @@ impl BlockMetaStorage {
         handler: F,
         commitment: Option<i32>,
     ) -> Result<Response<T>, Status>
-    where
-        F: FnOnce(&MessageBlockMeta) -> Option<T>,
+        where
+            F: FnOnce(&MessageBlockMeta) -> Option<T>,
     {
         let commitment = Self::parse_commitment(commitment)?;
         let _permit = self.read_sem.acquire().await;
@@ -639,7 +641,7 @@ impl BlockMetaStorage {
             CommitmentLevel::Confirmed => storage.confirmed,
             CommitmentLevel::Finalized => storage.finalized,
         }
-        .ok_or_else(|| Status::internal("startup"))?;
+            .ok_or_else(|| Status::internal("startup"))?;
 
         let valid = storage
             .blockhashes
@@ -657,10 +659,12 @@ impl BlockMetaStorage {
 
 #[derive(Debug, Default)]
 struct SlotMessages {
-    messages: Vec<Option<Arc<Message>>>, // Option is used for accounts with low write_version
+    messages: Vec<Option<Arc<Message>>>,
+    // Option is used for accounts with low write_version
     block_meta: Option<MessageBlockMeta>,
     transactions: Vec<MessageTransactionInfo>,
-    accounts_dedup: HashMap<Pubkey, (u64, usize)>, // (write_version, message_index)
+    accounts_dedup: HashMap<Pubkey, (u64, usize)>,
+    // (write_version, message_index)
     entries: Vec<MessageEntry>,
     sealed: bool,
     entries_count: usize,
@@ -737,7 +741,7 @@ impl GrpcService {
             true,                          // tcp_nodelay
             Some(Duration::from_secs(20)), // tcp_keepalive
         )
-        .map_err(|error| anyhow::anyhow!(error))?;
+            .map_err(|error| anyhow::anyhow!(error))?;
 
         // Snapshot channel
         let (snapshot_tx, snapshot_rx) = match config.snapshot_plugin_channel_capacity {
@@ -767,7 +771,7 @@ impl GrpcService {
                 fs::read(&tls_config.cert_path),
                 fs::read(&tls_config.key_path)
             )
-            .context("failed to load tls_config files")?;
+                .context("failed to load tls_config files")?;
             server_builder = server_builder
                 .tls_config(ServerTlsConfig::new().identity(Identity::from_pem(cert, key)))
                 .context("failed to apply tls_config")?;
@@ -783,9 +787,9 @@ impl GrpcService {
             broadcast_tx: broadcast_tx.clone(),
             debug_clients_tx,
         })
-        .accept_compressed(CompressionEncoding::Gzip)
-        .send_compressed(CompressionEncoding::Gzip)
-        .max_decoding_message_size(max_decoding_message_size);
+            .accept_compressed(CompressionEncoding::Gzip)
+            .send_compressed(CompressionEncoding::Gzip)
+            .max_decoding_message_size(max_decoding_message_size);
 
         // Run geyser message loop
         let (messages_tx, messages_rx) = mpsc::unbounded_channel();
@@ -1270,7 +1274,7 @@ impl Geyser for GrpcService {
             },
             &self.config.filters,
         )
-        .expect("empty filter");
+            .expect("empty filter");
         let snapshot_rx = self.snapshot_rx.lock().await.take();
         let (stream_tx, stream_rx) = mpsc::channel(if snapshot_rx.is_some() {
             self.config.snapshot_client_channel_capacity
@@ -1291,6 +1295,7 @@ impl Geyser for GrpcService {
             let ping_msg = SubscribeUpdate {
                 filters: vec![],
                 update_oneof: Some(UpdateOneof::Ping(SubscribeUpdatePing {})),
+                timestamp: Some(Timestamp::from(SystemTime::now())),
             };
 
             loop {
